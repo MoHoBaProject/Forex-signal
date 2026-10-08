@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AssetPanel from "../components/AssetPanel";
+import ScanList from "../components/ScanList";
 import StatsPanel from "../components/StatsPanel";
 import { ASSETS, getAsset } from "../lib/assets";
 import { fetchPrices } from "../lib/dataSources";
@@ -76,6 +77,19 @@ export default function Home() {
         </p>
       </header>
 
+      <ScanList onSaved={() => setTrades(loadTrades())} />
+
+      <p className="text-xs mt-2 text-slate-500">
+        {priceError
+          ? `خطا در به‌روزرسانی قیمت: ${priceError}`
+          : updatedAt
+          ? `آخرین به‌روزرسانی قیمت معاملات باز: ${updatedAt.toLocaleTimeString("fa-IR")} (هر ۳۰ ثانیه)`
+          : "در حال دریافت قیمت..."}
+      </p>
+
+      <StatsPanel trades={trades} prices={prices} onClose={handleClose} onClear={handleClear} />
+
+      <h2 className="text-lg font-semibold mt-8 mb-3">چارت و جزئیات یک ارز</h2>
       <div className="flex flex-wrap gap-2 mb-4">
         {ASSETS.map((a) => (
           <button
@@ -98,16 +112,6 @@ export default function Home() {
         livePrice={prices[asset.id]}
         onSaved={() => setTrades(loadTrades())}
       />
-
-      <p className="text-xs mt-2 text-slate-500">
-        {priceError
-          ? `خطا در به‌روزرسانی قیمت: ${priceError}`
-          : updatedAt
-          ? `آخرین به‌روزرسانی قیمت: ${updatedAt.toLocaleTimeString("fa-IR")} (هر ۳۰ ثانیه)`
-          : "در حال دریافت قیمت..."}
-      </p>
-
-      <StatsPanel trades={trades} prices={prices} onClose={handleClose} onClear={handleClear} />
 
       <footer className="mt-8 text-xs text-slate-600 leading-relaxed">
         <p>
