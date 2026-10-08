@@ -100,4 +100,3 @@ enough times to build up ~30 real data points, it uses a short synthetic
 warm-up series (clearly labeled in the UI) just so the EMA/ATR math has
 something to run on. The more you use it, the more the chart reflects real
 price history on your device.
-tes
