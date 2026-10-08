@@ -5,8 +5,34 @@ import AssetPanel from "../components/AssetPanel";
 import ScanList from "../components/ScanList";
 import StatsPanel from "../components/StatsPanel";
 import { ASSETS, getAsset } from "../lib/assets";
-import { fetchPrices } from "../lib/dataSources";
-import { loadTrades, closeTrade, clearTrades } from "../lib/storage";
+import { fetchPrices, fetchCandlesSince } from "../lib/dataSources";
+import { loadTrades, closeTrade, clearTrades, updateTrade } from "../lib/storage";
+
+// بررسی اینکه آیا معامله‌ی باز به حد ضرر یا حد سود رسیده است
+async function findExit(t, currentPrice) {
+  const dir = t.action === "BUY" ? 1 : -1;
+  const since = t.checkedAt || t.createdAt;
+  try {
+    const cs = await fetchCandlesSince(t.assetId, since);
+    for (const c of cs) {
+      const hitSL = dir === 1 ? c.low <= t.sl : c.high >= t.sl;
+      const hitTP = dir === 1 ? c.high >= t.tp : c.low <= t.tp;
+      // اگر هر دو در یک کندل لمس شده باشند، محافظه‌کارانه حد ضرر فرض می‌شود
+      if (hitSL) return { price: t.sl, reason: "SL" };
+      if (hitTP) return { price: t.tp, reason: "TP" };
+    }
+    if (cs.length) updateTrade(t.id, { checkedAt: cs[cs.length - 1].time - 1 });
+    return null;
+  } catch (e) {
+    if (typeof currentPrice === "number") {
+      const slHit = dir === 1 ? currentPrice <= t.sl : currentPrice >= t.sl;
+      const tpHit = dir === 1 ? currentPrice >= t.tp : currentPrice <= t.tp;
+      if (slHit) return { price: t.sl, reason: "SL" };
+      if (tpHit) return { price: t.tp, reason: "TP" };
+    }
+    return null;
+  }
+}
 
 export default function Home() {
   const [selectedId, setSelectedId] = useState(ASSETS[0].id);
@@ -22,24 +48,45 @@ export default function Home() {
   const idsKey = useMemo(() => {
     const ids = new Set([selectedId]);
     trades.forEach((t) => {
-      if (!t.closed) ids.add(t.assetId);
+      if (!t.closed && t.action !== "SKIP") ids.add(t.assetId);
     });
     return Array.from(ids).sort().join(",");
   }, [selectedId, trades]);
 
   useEffect(() => {
     let stopped = false;
+    let running = false;
     const ids = idsKey.split(",");
 
+    async function evaluate(priceMap) {
+      const open = loadTrades().filter(
+        (t) => !t.closed && t.action !== "SKIP" && t.sl && t.tp
+      );
+      let changed = false;
+      for (const t of open) {
+        const ex = await findExit(t, priceMap[t.assetId]);
+        if (ex) {
+          closeTrade(t.id, ex.price, ex.reason);
+          changed = true;
+        }
+      }
+      if (changed && !stopped) setTrades(loadTrades());
+    }
+
     async function tick() {
+      if (running) return;
+      running = true;
       try {
         const p = await fetchPrices(ids);
         if (stopped) return;
         setPrices((prev) => ({ ...prev, ...p }));
         setPriceError(null);
         setUpdatedAt(new Date());
+        await evaluate(p);
       } catch (e) {
         if (!stopped) setPriceError(e.message);
+      } finally {
+        running = false;
       }
     }
 
@@ -54,7 +101,7 @@ export default function Home() {
   function handleClose(trade) {
     const price = prices[trade.assetId];
     if (typeof price !== "number") return;
-    closeTrade(trade.id, price);
+    closeTrade(trade.id, price, "MANUAL");
     setTrades(loadTrades());
   }
 
@@ -72,8 +119,8 @@ export default function Home() {
       <header className="mb-5">
         <h1 className="text-2xl font-bold">Signal Lab</h1>
         <p className="text-sm text-slate-400 mt-1">
-          سیگنال EMA + ATR، همه‌چیز فقط در مرورگر خودت ذخیره می‌شود. معامله‌ی واقعی انجام
-          نمی‌شود.
+          سیگنال EMA + ATR با حساب فرضی ۱۰۰ دلاری. همه‌چیز فقط در مرورگر خودت ذخیره
+          می‌شود و معامله‌ی واقعی انجام نمی‌شود.
         </p>
       </header>
 
@@ -83,7 +130,7 @@ export default function Home() {
         {priceError
           ? `خطا در به‌روزرسانی قیمت: ${priceError}`
           : updatedAt
-          ? `آخرین به‌روزرسانی قیمت معاملات باز: ${updatedAt.toLocaleTimeString("fa-IR")} (هر ۳۰ ثانیه)`
+          ? `آخرین به‌روزرسانی: ${updatedAt.toLocaleTimeString("fa-IR")} (هر ۳۰ ثانیه، حد ضرر و سود هم بررسی می‌شود)`
           : "در حال دریافت قیمت..."}
       </p>
 
@@ -116,7 +163,8 @@ export default function Home() {
       <footer className="mt-8 text-xs text-slate-600 leading-relaxed">
         <p>
           این ابزار فقط اطلاعات نشان می‌دهد و توصیه‌ی مالی نیست. سود و زیان‌ها فرضی هستند و
-          روی دستگاه خودت محاسبه می‌شوند. هیچ تضمینی برای سود وجود ندارد.
+          روی دستگاه خودت محاسبه می‌شوند. کارمزد و اسپرد تخمینی‌اند و هیچ تضمینی برای سود
+          وجود ندارد.
         </p>
       </footer>
     </main>
