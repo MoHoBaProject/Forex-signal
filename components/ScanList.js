@@ -4,10 +4,9 @@ import { useState } from "react";
 import { ASSETS, fmtPrice } from "../lib/assets";
 import { runStrategy } from "../lib/strategy";
 import { fetchCandles, fetchPrices } from "../lib/dataSources";
-import { addTrade } from "../lib/storage";
+import { openTrade } from "../lib/storage";
 
 const DECISION_FA = { BUY: "خرید", SELL: "فروش", NO_SIGNAL: "بدون سیگنال" };
-const ACTION_FA = { BUY: "خرید", SELL: "فروش", SKIP: "رد کردن" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export default function ScanList({ onSaved }) {
@@ -45,6 +44,7 @@ export default function ScanList({ onSaved }) {
           status: "done",
           decision: r.decision,
           up,
+          atr: r.lastATR,
           stopLoss: r.stopLoss,
           takeProfit: r.takeProfit,
           price: typeof prices[a.id] === "number" ? prices[a.id] : r.lastPrice,
@@ -60,7 +60,7 @@ export default function ScanList({ onSaved }) {
   async function trade(asset, action) {
     const row = rows[asset.id];
     if (!row || row.status !== "done") return;
-    patch(asset.id, { busy: true });
+    patch(asset.id, { busy: true, saved: null });
 
     let price = row.price;
     try {
@@ -71,23 +71,19 @@ export default function ScanList({ onSaved }) {
     }
 
     if (typeof price !== "number") {
-      patch(asset.id, { busy: false, saved: "قیمت نامشخص، ذخیره نشد" });
+      patch(asset.id, { busy: false, saved: "قیمت نامشخص، ذخیره نشد", savedOk: false });
       return;
     }
 
-    addTrade({
-      id: `${asset.id}_${Date.now()}`,
-      assetId: asset.id,
-      label: asset.label,
-      symbol: asset.symbol,
+    const r = openTrade({
+      asset,
       action,
-      entryPrice: price,
-      strategyDecision: row.decision,
-      createdAt: Date.now(),
-      closed: false,
+      price,
+      atr: row.atr,
+      decision: row.decision,
     });
-    onSaved();
-    patch(asset.id, { busy: false, price, saved: `ذخیره شد: ${ACTION_FA[action]} در $${fmtPrice(price)}` });
+    if (r.ok) onSaved();
+    patch(asset.id, { busy: false, price, saved: r.message, savedOk: r.ok });
   }
 
   return (
@@ -186,7 +182,15 @@ export default function ScanList({ onSaved }) {
                       رد کردن
                     </button>
                   </div>
-                  {row.saved && <p className="text-xs text-emerald-400 mt-1">{row.saved}</p>}
+                  {row.saved && (
+                    <p
+                      className={`text-xs mt-1 ${
+                        row.savedOk ? "text-emerald-400" : "text-rose-400"
+                      }`}
+                    >
+                      {row.saved}
+                    </p>
+                  )}
                 </>
               )}
             </div>
