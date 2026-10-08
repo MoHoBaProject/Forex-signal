@@ -1,48 +1,36 @@
-const CACHE_NAME = "signal-lab-v1";
-const PRECACHE_URLS = ["/", "/manifest.json"];
+const CACHE_NAME = "signal-lab-v2";
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
-  );
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
       )
-    )
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Network-first for API calls (always want fresh prices), cache-first for the app shell.
+// فقط فایل‌های همین سایت کش می‌شوند (network-first). درخواست‌های API مستقیم به شبکه می‌روند.
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  const isApi = url.hostname.includes("gold-api.com") || url.hostname.includes("coingecko.com");
-
-  if (isApi) {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
-    );
-    return;
-  }
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request)
-          .then((response) => {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-            return response;
-          })
-          .catch(() => cached)
-      );
-    })
+    fetch(req)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req))
   );
 });
