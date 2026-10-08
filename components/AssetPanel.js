@@ -2,39 +2,24 @@
 
 import { useState } from "react";
 import Chart from "./Chart";
-import { runStrategy } from "../lib/strategy";
-import { fetchCandles, fetchPrices } from "../lib/dataSources";
-import { openTrade } from "../lib/storage";
+import StrategyRow from "./StrategyRow";
+import { STRATEGIES, runAll } from "../lib/strategies";
+import { fetchCandles } from "../lib/dataSources";
 import { fmtPrice } from "../lib/assets";
-
-const DECISION_FA = { BUY: "خرید", SELL: "فروش", NO_SIGNAL: "بدون سیگنال" };
-
-function explain(result) {
-  if (!result.fastEMA.length) return "داده‌ی کافی برای محاسبه نیست.";
-  const n = result.fastEMA.length;
-  const up = result.fastEMA[n - 1] > result.slowEMA[n - 1];
-  if (result.decision === "NO_SIGNAL") {
-    return `${result.reason} روند فعلی: ${up ? "صعودی" : "نزولی"}.`;
-  }
-  return result.reason;
-}
 
 export default function AssetPanel({ asset, livePrice, onSaved }) {
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [message, setMessage] = useState(null);
   const [candles, setCandles] = useState([]);
-  const [result, setResult] = useState(null);
+  const [results, setResults] = useState(null);
 
   async function handleCalculate() {
     setLoading(true);
     setError(null);
-    setMessage(null);
     try {
       const c = await fetchCandles(asset.id);
       setCandles(c);
-      setResult(runStrategy(c, {}));
+      setResults(runAll(c));
     } catch (e) {
       setError(e.message || "دریافت داده ناموفق بود.");
     } finally {
@@ -42,41 +27,7 @@ export default function AssetPanel({ asset, livePrice, onSaved }) {
     }
   }
 
-  async function handleTrade(action) {
-    if (!result) return;
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const p = await fetchPrices([asset.id]);
-      const price = p[asset.id];
-      if (typeof price !== "number") throw new Error("قیمت لحظه‌ای دریافت نشد.");
-      const r = openTrade({
-        asset,
-        action,
-        price,
-        atr: result.lastATR,
-        decision: result.decision,
-      });
-      if (r.ok) {
-        onSaved();
-        setMessage(r.message);
-      } else {
-        setError(r.message);
-      }
-    } catch (e) {
-      setError(e.message || "ذخیره ناموفق بود.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const decisionColor =
-    result?.decision === "BUY"
-      ? "text-emerald-400"
-      : result?.decision === "SELL"
-      ? "text-rose-400"
-      : "text-slate-400";
+  const price = livePrice ?? results?.ema?.lastPrice;
 
   return (
     <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
@@ -97,46 +48,21 @@ export default function AssetPanel({ asset, livePrice, onSaved }) {
       </div>
 
       {candles.length > 0 && (
-        <Chart candles={candles} fastEMA={result?.fastEMA} slowEMA={result?.slowEMA} />
+        <Chart candles={candles} fastEMA={results?.ema?.fastEMA} slowEMA={results?.ema?.slowEMA} />
       )}
 
-      {result && (
+      {results && (
         <div className="mt-3 space-y-2">
-          <p className={`text-xl font-bold ${decisionColor}`}>
-            استراتژی: {DECISION_FA[result.decision]}
-          </p>
-          <p className="text-sm text-slate-400">{explain(result)}</p>
-          {result.stopLoss && (
-            <p className="text-sm text-slate-300">
-              حد ضرر: ${fmtPrice(result.stopLoss)} · حد سود: ${fmtPrice(result.takeProfit)}
-            </p>
-          )}
-
-          <div className="grid grid-cols-3 gap-2 pt-2">
-            <button
-              onClick={() => handleTrade("BUY")}
-              disabled={saving}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium py-2 rounded-xl"
-            >
-              خرید
-            </button>
-            <button
-              onClick={() => handleTrade("SELL")}
-              disabled={saving}
-              className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-medium py-2 rounded-xl"
-            >
-              فروش
-            </button>
-            <button
-              onClick={() => handleTrade("SKIP")}
-              disabled={saving}
-              className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-medium py-2 rounded-xl"
-            >
-              رد کردن
-            </button>
-          </div>
-
-          {message && <p className="text-xs text-emerald-400">{message}</p>}
+          {STRATEGIES.map((s) => (
+            <StrategyRow
+              key={s.id}
+              asset={asset}
+              strategy={s}
+              result={results[s.id]}
+              price={price}
+              onSaved={onSaved}
+            />
+          ))}
         </div>
       )}
 
