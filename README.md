@@ -1,4 +1,4 @@
-# Signal Lab
+t# Signal Lab
 
 Rule-based technical signal tracker for Gold (XAU/USD) and Bitcoin (BTC/USD).
 Built with Next.js, runs **entirely client-side** - no backend, no server,
