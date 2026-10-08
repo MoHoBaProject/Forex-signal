@@ -4,21 +4,19 @@ import { useState } from "react";
 import Chart from "./Chart";
 import { runStrategy } from "../lib/strategy";
 import { fetchCandles, fetchPrices } from "../lib/dataSources";
-import { addTrade } from "../lib/storage";
+import { openTrade } from "../lib/storage";
 import { fmtPrice } from "../lib/assets";
 
 const DECISION_FA = { BUY: "خرید", SELL: "فروش", NO_SIGNAL: "بدون سیگنال" };
-const ACTION_FA = { BUY: "خرید", SELL: "فروش", SKIP: "رد کردن" };
 
 function explain(result) {
   if (!result.fastEMA.length) return "داده‌ی کافی برای محاسبه نیست.";
   const n = result.fastEMA.length;
   const up = result.fastEMA[n - 1] > result.slowEMA[n - 1];
-  if (result.decision === "BUY")
-    return "EMA سریع (۱۲) از EMA کند (۲۶) به بالا عبور کرد و فیلتر ATR تأیید کرد.";
-  if (result.decision === "SELL")
-    return "EMA سریع (۱۲) از EMA کند (۲۶) به پایین عبور کرد و فیلتر ATR تأیید کرد.";
-  return `در آخرین کندل کراس تأییدشده‌ای نیست. روند فعلی: ${up ? "صعودی" : "نزولی"}.`;
+  if (result.decision === "NO_SIGNAL") {
+    return `${result.reason} روند فعلی: ${up ? "صعودی" : "نزولی"}.`;
+  }
+  return result.reason;
 }
 
 export default function AssetPanel({ asset, livePrice, onSaved }) {
@@ -53,19 +51,19 @@ export default function AssetPanel({ asset, livePrice, onSaved }) {
       const p = await fetchPrices([asset.id]);
       const price = p[asset.id];
       if (typeof price !== "number") throw new Error("قیمت لحظه‌ای دریافت نشد.");
-      addTrade({
-        id: `${asset.id}_${Date.now()}`,
-        assetId: asset.id,
-        label: asset.label,
-        symbol: asset.symbol,
+      const r = openTrade({
+        asset,
         action,
-        entryPrice: price,
-        strategyDecision: result.decision,
-        createdAt: Date.now(),
-        closed: false,
+        price,
+        atr: result.lastATR,
+        decision: result.decision,
       });
-      onSaved();
-      setMessage(`ذخیره شد: ${ACTION_FA[action]} در قیمت $${fmtPrice(price)}`);
+      if (r.ok) {
+        onSaved();
+        setMessage(r.message);
+      } else {
+        setError(r.message);
+      }
     } catch (e) {
       setError(e.message || "ذخیره ناموفق بود.");
     } finally {
@@ -97,8 +95,6 @@ export default function AssetPanel({ asset, livePrice, onSaved }) {
           {loading ? "در حال محاسبه..." : "محاسبه"}
         </button>
       </div>
-
-      {error && <p className="text-rose-400 text-sm mb-2">{error}</p>}
 
       {candles.length > 0 && (
         <Chart candles={candles} fastEMA={result?.fastEMA} slowEMA={result?.slowEMA} />
@@ -143,6 +139,8 @@ export default function AssetPanel({ asset, livePrice, onSaved }) {
           {message && <p className="text-xs text-emerald-400">{message}</p>}
         </div>
       )}
+
+      {error && <p className="text-rose-400 text-sm mt-2">{error}</p>}
     </div>
   );
 }
